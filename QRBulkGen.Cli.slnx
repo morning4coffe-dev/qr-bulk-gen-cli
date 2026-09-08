@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/QRBulkGen.Cli/QRBulkGen.Cli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/QRBulkGen.Cli.Tests/QRBulkGen.Cli.Tests.csproj" />
+  </Folder>
+</Solution>

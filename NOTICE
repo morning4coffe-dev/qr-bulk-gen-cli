@@ -1,0 +1,17 @@
+QR Bulk CLI
+
+This standalone command-line application was extracted and substantially revised
+from QR Bulk Generator. Its original distribution included this notice:
+
+Uno Platform
+Copyright (c) nventive
+All rights reserved.
+
+The Apache-2.0 license and the original notice are retained. Changes in this
+distribution replace the one-off console prototype with a general-purpose,
+cross-platform CLI, configurable input/output, packaging, and documentation.
+No endorsement by the original template authors is implied.
+
+Noto Sans is bundled under the SIL Open Font License 1.1. See Fonts/OFL.txt in
+binary distributions and src/QRBulkGen.Cli/Fonts/OFL.txt in source distributions.
+Additional dependency attributions are in THIRD-PARTY-NOTICES.md.

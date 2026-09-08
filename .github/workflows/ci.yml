@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore locked dependencies
+        shell: pwsh
+        run: |
+          dotnet restore QRBulkGen.Cli.slnx --locked-mode
+
+      - name: Run release tests
+        shell: pwsh
+        run: |
+          dotnet test QRBulkGen.Cli.slnx --configuration Release --no-restore --verbosity minimal
+
+      - name: Pack smoke
+        shell: pwsh
+        run: |
+          $packRoot = Join-Path $env:RUNNER_TEMP 'qr-bulk-pack-smoke'
+          New-Item -ItemType Directory -Path $packRoot -Force | Out-Null
+          $project = Join-Path $PWD 'src' 'QRBulkGen.Cli' 'QRBulkGen.Cli.csproj'
+          dotnet pack $project --configuration Release --no-restore --output $packRoot -p:ContinuousIntegrationBuild=true
+          if ($LASTEXITCODE -ne 0) { throw 'Tool packing failed.' }
+          $toolRoot = Join-Path $env:RUNNER_TEMP 'qr-bulk-tool-smoke'
+          dotnet tool install QRBulkGen.Cli --tool-path $toolRoot --source $packRoot --configfile NuGet.Config
+          if ($LASTEXITCODE -ne 0) { throw 'Tool installation failed.' }
+          $executable = Join-Path $toolRoot $(if ($IsWindows) { 'qr-bulk.exe' } else { 'qr-bulk' })
+          & $executable --text 'https://example.com' --output (Join-Path $env:RUNNER_TEMP 'tool-smoke.svg')
+          if ($LASTEXITCODE -ne 0) { throw 'Installed tool failed.' }

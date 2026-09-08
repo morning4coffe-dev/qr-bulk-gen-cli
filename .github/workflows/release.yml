@@ -1,0 +1,175 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-tag:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Validate tag matches project version
+        id: version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $projectPath = Join-Path (Join-Path (Join-Path (Get-Location) 'src') 'QRBulkGen.Cli') 'QRBulkGen.Cli.csproj'
+          [xml]$project = Get-Content -LiteralPath $projectPath -Raw
+          $version = @(
+            $project.Project.PropertyGroup |
+              ForEach-Object { $_.Version } |
+              Where-Object { $_ }
+          )[0]
+
+          if (-not $version) {
+            throw "Unable to read the project version from $projectPath."
+          }
+
+          $tag = $env:RELEASE_TAG
+          if ($tag -notmatch '^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z-.]+)?$') {
+            throw "Release tags must look like v1.2.3; got '$tag'."
+          }
+
+          if ($tag.Substring(1) -ne $version) {
+            throw "Tag '$tag' does not match project version '$version'."
+          }
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+  build-archives:
+    name: Build ${{ matrix.os }}
+    needs: validate-tag
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            runtimeIdentifiers: 'win-x64;win-arm64'
+          - os: ubuntu-latest
+            runtimeIdentifiers: 'linux-x64;linux-arm64'
+          - os: macos-latest
+            runtimeIdentifiers: 'osx-x64;osx-arm64'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore locked dependencies
+        shell: pwsh
+        run: |
+          dotnet restore QRBulkGen.Cli.slnx --locked-mode
+
+      - name: Run release tests
+        shell: pwsh
+        run: |
+          dotnet test QRBulkGen.Cli.slnx --configuration Release --no-restore --verbosity minimal
+
+      - name: Build release archives
+        id: build
+        shell: pwsh
+        run: |
+          $artifactRoot = Join-Path $env:RUNNER_TEMP 'qr-bulk-release'
+          $artifactRoot = Join-Path $artifactRoot '${{ matrix.os }}'
+          New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
+
+          $scriptPath = Join-Path (Join-Path (Get-Location) 'scripts') 'Publish-Release.ps1'
+          $runtimeIdentifiers = '${{ matrix.runtimeIdentifiers }}'.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
+          & $scriptPath -Mode Build -ArtifactsRoot $artifactRoot -RuntimeIdentifiers $runtimeIdentifiers
+
+          $outputRoot = Join-Path $artifactRoot 'out'
+          "output-root=$outputRoot" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Upload release archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: archives-${{ matrix.os }}
+          path: ${{ steps.build.outputs.output-root }}/*
+          if-no-files-found: error
+
+  build-package:
+    name: Build nupkg
+    needs: validate-tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore locked dependencies
+        shell: pwsh
+        run: |
+          dotnet restore QRBulkGen.Cli.slnx --locked-mode
+
+      - name: Pack tool package
+        shell: pwsh
+        run: |
+          $packageRoot = Join-Path $env:RUNNER_TEMP 'qr-bulk-package'
+          New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
+          $project = Join-Path $PWD 'src' 'QRBulkGen.Cli' 'QRBulkGen.Cli.csproj'
+          dotnet pack $project --configuration Release --no-restore --output $packageRoot -p:ContinuousIntegrationBuild=true
+
+      - name: Upload nupkg
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: ${{ runner.temp }}/qr-bulk-package/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs:
+      - validate-tag
+      - build-archives
+      - build-package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/qr-bulk-release-assets
+          merge-multiple: true
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}
+        run: |
+          $scriptPath = Join-Path (Join-Path (Get-Location) 'scripts') 'Publish-Release.ps1'
+          $artifactRoot = Join-Path $env:RUNNER_TEMP 'qr-bulk-release-assets'
+          & $scriptPath -Mode Release -Tag $env:RELEASE_TAG -Version $env:RELEASE_VERSION -ArtifactsRoot $artifactRoot
