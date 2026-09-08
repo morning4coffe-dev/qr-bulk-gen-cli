@@ -23,6 +23,8 @@ On Windows, run `.\qr-bulk.exe --help` from the extracted folder.
 On Linux/macOS, run `./qr-bulk --help` (use `chmod +x qr-bulk` if necessary).
 Add that folder to your `PATH` to use `qr-bulk` from anywhere.
 Release assets include `SHA256SUMS` for checking downloads.
+Linux archives target glibc-based distributions, not Alpine/musl. Binaries are
+unsigned and macOS archives are not notarized; your OS may show a trust prompt.
 
 ### As a .NET tool
 
@@ -185,6 +187,9 @@ CI runs on Windows, Linux, and macOS. Push a `v1.0.0`-style tag matching the
 project version to run the release workflow, which produces self-contained
 archives for x64/ARM64, the .NET tool package, and checksums. It needs only the
 repository's GitHub Actions token, not a NuGet API key.
+The portable tool uses `packages.lock.json`; self-contained publishing uses
+`packages.release.lock.json` with `PackAsTool=false` to keep platform-specific
+runtime restoration separate from the single, portable tool package.
 
 The CLI is a standalone repository with independent history and no GUI dependency.
 See [LICENSE.md](LICENSE.md), [NOTICE](NOTICE), and

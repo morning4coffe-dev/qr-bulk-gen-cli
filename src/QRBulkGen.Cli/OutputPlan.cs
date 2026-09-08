@@ -78,8 +78,10 @@ internal sealed record OutputPlan(OutputFormat Format, IReadOnlyList<string> Pat
         return new OutputPlan(format, paths, fullOutput);
     }
 
-    private static string ResolvePath(string path)
+    private static string ResolvePath(string path, int depth = 0)
     {
+        if (depth >= 40)
+            throw new CliException("Too many symbolic links in an input or output path.");
         var fullPath = Path.GetFullPath(path);
         var root = Path.GetPathRoot(fullPath)!;
         var resolved = root;
@@ -89,9 +91,16 @@ internal sealed record OutputPlan(OutputFormat Format, IReadOnlyList<string> Pat
         {
             var next = Path.Combine(resolved, segment);
             FileSystemInfo entry = Directory.Exists(next) ? new DirectoryInfo(next) : new FileInfo(next);
-            resolved = entry.LinkTarget is null ? next :
-                (entry.ResolveLinkTarget(returnFinalTarget: true) ??
-                 throw new CliException($"Unable to resolve symbolic link: {next}")).FullName;
+            if (entry.LinkTarget is null)
+            {
+                resolved = next;
+            }
+            else
+            {
+                var target = entry.ResolveLinkTarget(returnFinalTarget: true) ??
+                    throw new CliException($"Unable to resolve symbolic link: {next}");
+                resolved = ResolvePath(target.FullName, depth + 1);
+            }
         }
         return resolved;
     }

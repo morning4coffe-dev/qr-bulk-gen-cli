@@ -272,25 +272,7 @@ public sealed class CliTests
         var realDirectory = System.IO.Path.Combine(folder.Path, "real");
         var aliasDirectory = System.IO.Path.Combine(folder.Path, "alias");
         Directory.CreateDirectory(realDirectory);
-        if (OperatingSystem.IsWindows())
-        {
-            // NTFS junctions do not require Developer Mode or elevated symlink privileges.
-            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "cmd.exe",
-                Arguments = $"/c mklink /J \"{aliasDirectory}\" \"{realDirectory}\"",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            })!;
-            process.WaitForExit();
-            Assert.Equal(0, process.ExitCode);
-        }
-        else
-        {
-            Directory.CreateSymbolicLink(aliasDirectory, realDirectory);
-        }
+        CreateDirectoryAlias(aliasDirectory, realDirectory);
         var input = System.IO.Path.Combine(realDirectory, "input.txt");
         File.WriteAllText(input, "keep me");
         var output = System.IO.Path.Combine(aliasDirectory, "input.txt");
@@ -304,6 +286,34 @@ public sealed class CliTests
         finally
         {
             Directory.Delete(aliasDirectory);
+        }
+    }
+
+    [Fact]
+    public void AliasTargetsWithSymlinkedParentsCannotBypassInputProtection()
+    {
+        using var folder = new TemporaryDirectory();
+        var real = System.IO.Path.Combine(folder.Path, "real");
+        var child = System.IO.Path.Combine(real, "child");
+        var parentAlias = System.IO.Path.Combine(folder.Path, "parent-alias");
+        var childAlias = System.IO.Path.Combine(folder.Path, "child-alias");
+        Directory.CreateDirectory(child);
+        CreateDirectoryAlias(parentAlias, real);
+        CreateDirectoryAlias(childAlias, System.IO.Path.Combine(parentAlias, "child"));
+        var input = System.IO.Path.Combine(child, "input.txt");
+        File.WriteAllText(input, "keep me");
+        try
+        {
+            var result = Run(["-i", input, "-f", "pdf", "-o",
+                System.IO.Path.Combine(childAlias, "input.txt"), "--force"]);
+            Assert.Equal(2, result.Code);
+            Assert.Contains("input file", result.Error);
+            Assert.Equal("keep me", File.ReadAllText(input));
+        }
+        finally
+        {
+            Directory.Delete(childAlias);
+            Directory.Delete(parentAlias);
         }
     }
 
@@ -405,6 +415,29 @@ public sealed class CliTests
         using var error = new StringWriter();
         var code = CliApplication.Run(args, source, destination, help, error);
         return new RunResult(code, destination.ToArray(), help.ToString(), error.ToString());
+    }
+
+    private static void CreateDirectoryAlias(string alias, string target)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            // NTFS junctions do not require Developer Mode or elevated symlink privileges.
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c mklink /J \"{alias}\" \"{target}\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            })!;
+            process.WaitForExit();
+            Assert.Equal(0, process.ExitCode);
+        }
+        else
+        {
+            Directory.CreateSymbolicLink(alias, target);
+        }
     }
 
     private sealed record RunResult(int Code, byte[] Bytes, string Help, string Error);

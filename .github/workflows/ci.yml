@@ -48,6 +48,9 @@ jobs:
           $project = Join-Path $PWD 'src' 'QRBulkGen.Cli' 'QRBulkGen.Cli.csproj'
           dotnet pack $project --configuration Release --no-restore --output $packRoot -p:ContinuousIntegrationBuild=true
           if ($LASTEXITCODE -ne 0) { throw 'Tool packing failed.' }
+          if (@(Get-ChildItem -LiteralPath $packRoot -Filter '*.nupkg').Count -ne 1) {
+            throw 'Expected one portable tool package, not platform-specific dispatcher packages.'
+          }
           $toolRoot = Join-Path $env:RUNNER_TEMP 'qr-bulk-tool-smoke'
           dotnet tool install QRBulkGen.Cli --tool-path $toolRoot --source $packRoot --configfile NuGet.Config
           if ($LASTEXITCODE -ne 0) { throw 'Tool installation failed.' }
