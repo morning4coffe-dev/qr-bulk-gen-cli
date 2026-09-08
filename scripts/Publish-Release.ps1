@@ -23,17 +23,12 @@ function Get-ProjectVersion {
     param([Parameter(Mandatory)][string]$Path)
 
     [xml]$project = Get-Content -LiteralPath $Path -Raw
-    $versions = @(
-        $project.Project.PropertyGroup |
-            ForEach-Object { $_.Version } |
-            Where-Object { $_ }
-    )
-
-    if (-not $versions) {
-        throw "Unable to determine the project version from '$Path'."
+    $versions = $project.SelectNodes('/Project/PropertyGroup/Version')
+    if ($versions.Count -ne 1) {
+        throw "Expected exactly one project version in '$Path'."
     }
 
-    [string]$versions[0]
+    $versions[0].InnerText
 }
 
 function Get-RuntimeExecutableName {

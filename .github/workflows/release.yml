@@ -35,15 +35,11 @@ jobs:
         run: |
           $projectPath = Join-Path (Join-Path (Join-Path (Get-Location) 'src') 'QRBulkGen.Cli') 'QRBulkGen.Cli.csproj'
           [xml]$project = Get-Content -LiteralPath $projectPath -Raw
-          $version = @(
-            $project.Project.PropertyGroup |
-              ForEach-Object { $_.Version } |
-              Where-Object { $_ }
-          )[0]
-
-          if (-not $version) {
-            throw "Unable to read the project version from $projectPath."
+          $versions = $project.SelectNodes('/Project/PropertyGroup/Version')
+          if ($versions.Count -ne 1) {
+            throw "Expected exactly one project version in $projectPath."
           }
+          $version = $versions[0].InnerText
 
           $tag = $env:RELEASE_TAG
           if ($tag -notmatch '^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z-.]+)?$') {
